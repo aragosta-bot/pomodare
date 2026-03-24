@@ -25,8 +25,8 @@
     <true/>
     <!-- TODO: Set your Supabase credentials here -->
     <key>SUPABASE_URL</key>
-    <string>https://YOUR_PROJECT.supabase.co</string>
+    <string>https://alcijxissydvfemjblln.supabase.co</string>
     <key>SUPABASE_ANON_KEY</key>
-    <string>YOUR_ANON_KEY_HERE</string>
+    <string>eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFsY2lqeGlzc3lkdmZlbWpibGxuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQzODA1NDksImV4cCI6MjA4OTk1NjU0OX0.8UDqM1QQofasGw1-shmfgXhkWiu8N4n52nn2QbD-LhA</string>
 </dict>
 </plist>
