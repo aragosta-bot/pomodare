@@ -60,6 +60,8 @@ type buttonRegion struct {
 // Bubble Tea is single-threaded, so a package-level var is safe.
 var currentButtons []buttonRegion
 
+var emojiSpinner = []string{"🍅", "🍅·", "·🍅·", "··🍅", "·🍅·", "🍅·"}
+
 // Model is the main application state
 type Model struct {
 	screen       Screen
@@ -814,25 +816,22 @@ func (m Model) viewWaiting() string {
 	if m.session != nil {
 		code = m.session.Code
 	}
-	frame := TomatoFrames[m.spinnerIdx]
+	frame := emojiSpinner[(m.spinnerIdx/2)%len(emojiSpinner)]
 	btnBack := renderButton("Back")
 	btnQuit := renderButton("Quit")
 
 	var lines []string
-	// frame = 3 lines (0,1,2)
-	for _, l := range strings.Split(frame, "\n") {
-		lines = append(lines, styleTitle.Render(l))
-	}
+	lines = append(lines, styleTitle.Render(frame))                    // 0
+	lines = append(lines, "")                                          // 1
+	lines = append(lines, "Your code: "+styleCode.Render(code))       // 2
 	lines = append(lines, "")                                          // 3
-	lines = append(lines, "Your code: "+styleCode.Render(code))       // 4
+	lines = append(lines, styleMuted.Render("Waiting for partner...")) // 4
 	lines = append(lines, "")                                          // 5
-	lines = append(lines, styleMuted.Render("Waiting for partner...")) // 6
-	lines = append(lines, "")                                          // 7
-	lines = append(lines, btnBack+"  "+btnQuit)                        // 8
+	lines = append(lines, btnBack+"  "+btnQuit)                        // 6
 
 	content := strings.Join(lines, "\n")
 	topOff, leftOff := m.centerOffsets(content)
-	registerButtonRow([]btnEntry{{"back", btnBack}, {"quit", btnQuit}}, 8, topOff, leftOff)
+	registerButtonRow([]btnEntry{{"back", btnBack}, {"quit", btnQuit}}, 6, topOff, leftOff)
 
 	return m.centerView(content)
 }
@@ -876,7 +875,7 @@ func (m Model) viewLobby() string {
 	lines = append(lines, "")                      // 1
 
 	if m.isHost {
-		btnStart := renderKeyButton("S", "Start round")
+		btnStart := renderButton("Start round")
 		lines = append(lines, btnStart) // 2
 		lines = append(lines, "")       // 3
 		lines = append(lines, btnQuit)  // 4
