@@ -840,32 +840,24 @@ func (m Model) viewWaiting() string {
 func (m Model) viewJoin() string {
 	currentButtons = nil
 
-	codeDisplay := m.codeInput + strings.Repeat("_", 4-len(m.codeInput))
-	btnJoin := renderButton("Join")
-	btnBack := renderButton("Back")
-	btnQuit := renderButton("Quit")
+	inputField := "> " + styleInput.Render(m.codeInput+"_")
 
 	var lines []string
-	lines = append(lines, styleTitle.Render("Pomodare 🍅"))                 // 0
-	lines = append(lines, "")                                                // 1
-	lines = append(lines, "Kod: "+styleCode.Render(codeDisplay))            // 2
-	lines = append(lines, "")                                                // 3
+	lines = append(lines, styleTitle.Render("Pomodare 🍅"))                  // 0
+	lines = append(lines, "")                                                 // 1
+	lines = append(lines, styleMuted.Render("Enter 4-letter code:"))         // 2
+	lines = append(lines, "")                                                 // 3
+	lines = append(lines, inputField)                                         // 4
+	lines = append(lines, "")                                                 // 5
 	if m.errMsg != "" {
-		lines = append(lines, styleWarning.Render(truncate(m.errMsg, 46))) // 4
+		lines = append(lines, styleWarning.Render(truncate(m.errMsg, 46))) // 6
 	} else {
-		lines = append(lines, styleMuted.Render("Enter 4 letters and press Enter")) // 4
+		lines = append(lines, "") // 6
 	}
-	lines = append(lines, "")                              // 5
-	lines = append(lines, btnJoin+"  "+btnBack+"  "+btnQuit) // 6
+	lines = append(lines, "")                                                                   // 7
+	lines = append(lines, renderKeyButton("Enter", "join")+"   "+renderKeyButton("Esc", "back")) // 8
 
 	content := strings.Join(lines, "\n")
-	topOff, leftOff := m.centerOffsets(content)
-	registerButtonRow([]btnEntry{
-		{"join_submit", btnJoin},
-		{"back", btnBack},
-		{"quit", btnQuit},
-	}, 6, topOff, leftOff)
-
 	return m.centerView(content)
 }
 

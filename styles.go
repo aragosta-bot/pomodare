@@ -54,6 +54,7 @@ var (
 
 	styleAccent = lipgloss.NewStyle().Foreground(colorAccent).Bold(true)
 	styleDim    = lipgloss.NewStyle().Foreground(lipgloss.Color("#888888"))
+	styleInput  = lipgloss.NewStyle().Foreground(lipgloss.Color("#e85d04")).Bold(true)
 )
 
 // renderButton renders a button label with the first letter (keyboard shortcut)
