@@ -1,127 +1,67 @@
-# 🍅 Pomodare
+# Pomodare 🍅
 
-A macOS menubar app where two remote people compete to stay focused through shared Pomodoro rounds.
+Synchronized Pomodoro timer for two remote people. Connect via a 4-letter code, declare you're working, and track rounds together.
 
-## How It Works
+## What it does
 
-- **Host** creates a session → gets a 4-letter code (e.g. `BRAT`)
-- **Guest** enters the code → both land in the Lobby
-- A 25-minute focus round starts — both must click **🍅 I'm working** to commit
-- At the end of each round, whoever committed wins a point
-- 5 rounds → final scoreboard
-- Real-time sync via Supabase REST polling (every 3s)
+- 25min work / 5min break timer, synchronized via Supabase
+- Both people connect via a shared 4-letter session code
+- Press `P` in the first 5 minutes to declare "I'm working"
+- Press `G` to give up (only before the 20-minute mark)
+- Round counts toward your score if you declared and didn't give up
+- After 5 rounds: "Ty: 4/5 | Partner: 3/5"
 
----
+## Requirements
+
+- Go 1.22+
+- A terminal
 
 ## Setup
 
-### 1. Create a Supabase Project
-
-1. Go to [supabase.com](https://supabase.com) and create a free project
-2. In the SQL editor (**Database → SQL Editor**), paste and run the contents of `schema.sql`
-3. Copy your credentials from **Project Settings → API**:
-   - **Project URL** — looks like `https://abcdefgh.supabase.co`
-   - **anon / public key** — the `anon` JWT
-
-### 2. Add Credentials to Info.plist
-
-Open `Pomodare/Info.plist` and replace the placeholder values:
-
-```xml
-<key>SUPABASE_URL</key>
-<string>https://YOUR_PROJECT_ID.supabase.co</string>
-<key>SUPABASE_ANON_KEY</key>
-<string>YOUR_ANON_KEY_HERE</string>
-```
-
-### 3. Build and Run
-
 ```bash
-# Regenerate Xcode project first (if needed):
-export PATH="/opt/homebrew/opt/ruby/bin:$PATH"
 cd ~/Developer/pomodare
-ruby generate_project.rb
 
-# Then open in Xcode:
-open Pomodare.xcodeproj
-# Press Cmd+R
+# Install dependencies
+go mod tidy
+
+# Build
+go build -o pomodare .
+
+# Run
+./pomodare
 ```
 
-Or from the command line:
+## Environment variables (optional)
+
 ```bash
-xcodebuild -project Pomodare.xcodeproj \
-           -scheme Pomodare \
-           -configuration Debug \
-           build
+export POMODARE_SUPABASE_URL=https://...
+export POMODARE_SUPABASE_ANON_KEY=eyJ...
 ```
 
----
+Falls back to hardcoded defaults if not set.
 
-## Project Structure
+## Controls
 
-```
-Pomodare/
-├── PomodareApp.swift          @main — MenuBarExtra scene + MenuBarLabel icon
-├── AppDelegate.swift          Hides app from Dock (LSUIElement = true)
-├── Extensions.swift           Misc helpers
-├── Info.plist                 Bundle config + Supabase credentials (SUPABASE_URL, SUPABASE_ANON_KEY)
-├── Models/
-│   ├── AppState.swift         @Observable state — SessionPhase enum + timer + partner status
-│   ├── SupabaseService.swift  REST client — createSession, joinSession, updateParticipant, 3s poll
-│   └── ActivityTracker.swift  (legacy) CGEventTap idle detection
-└── Views/
-    └── MenuBarView.swift      MenuBarView + Home/Waiting/Session/Finished sub-views
-schema.sql                     Supabase schema — run this in your project's SQL editor
-```
+| Screen   | Key | Action              |
+|----------|-----|---------------------|
+| Home     | `N` | New session (host)  |
+| Home     | `J` | Join session        |
+| Lobby    | `S` | Start round (host)  |
+| Active   | `P` | Declare working     |
+| Active   | `G` | Give up             |
+| Any      | `Q` | Quit                |
 
----
-
-## Architecture
-
-### SessionPhase State Machine
+## File structure
 
 ```
-idle → waiting → lobby → active → roundResult → (next round or) finished
-                                ↓
-                             breakTime
+main.go       — entry point
+model.go      — Bubble Tea model (screens, state machine)
+supabase.go   — REST client + session sync
+timer.go      — timer logic and phase management
+styles.go     — Lip Gloss styles
+schema.sql    — Supabase table schema
 ```
 
-| Phase | Description |
-|-------|-------------|
-| `idle` | No session — home screen |
-| `waiting` | Host created session, waiting for guest |
-| `lobby` | Both connected, about to start |
-| `active` | 25-min focus round counting down |
-| `breakTime` | Short break between rounds |
-| `roundResult` | Round ended — commit/give-up shown |
-| `finished` | All rounds done — scoreboard |
+## Database
 
-### Networking
-
-- **Pure URLSession** — no third-party SDKs
-- **Polling every 3s** — `SupabaseService.subscribeToSession` as Realtime fallback
-- **Supabase REST API** with open RLS policies (fine for private beta)
-- No auth — each user gets a random UUID on first launch (stored in memory for POC)
-
-### State
-
-- `AppState` is `@Observable` (macOS 14+ / iOS 17+)
-- Passed via `@Environment` through the view tree
-- `SupabaseService` is a singleton accessed directly; could be injected for tests
-
----
-
-## Known Limitations / TODOs
-
-- **UUID persistence**: User UUID resets on every launch. Use `UserDefaults` or Keychain for real persistence.
-- **No Realtime WebSocket**: Uses 3s polling. Upgrade to Supabase Realtime for sub-second sync.
-- **Host drives round transitions**: Only host should call `updateSessionState`. Currently both could — add role checks.
-- **No break timer**: `breakTime` phase transitions are not wired up yet.
-- **Session cleanup**: Old sessions linger. Add a cleanup job or TTL.
-- **No Accessibility permission needed**: The POC dropped `CGEventTap` (ActivityTracker). Add it back for idle detection.
-
----
-
-## License
-
-MIT
+The Supabase `sessions` table is defined in `schema.sql`. Run it in the Supabase SQL editor to set up the backend.
