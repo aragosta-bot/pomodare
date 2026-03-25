@@ -294,6 +294,30 @@
     footer a { color: var(--text-dim); text-decoration: none; }
     footer a:hover { color: var(--text); }
 
+    /* TOMATO RAIN */
+    .tomato-rain {
+      position: absolute;
+      top: 0; left: 0; right: 0; bottom: 0;
+      overflow: hidden;
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    .tomato-drop {
+      position: absolute;
+      top: -2rem;
+      animation: fall linear infinite;
+      opacity: 0;
+      user-select: none;
+    }
+
+    @keyframes fall {
+      0%   { transform: translateY(0);    opacity: 0; }
+      10%  { opacity: 0.7; }
+      90%  { opacity: 0.15; }
+      100% { transform: translateY(110vh); opacity: 0; }
+    }
+
     /* SCROLL INDICATOR */
     .scroll-hint {
       position: absolute;
@@ -331,16 +355,19 @@
 
 <!-- HERO -->
 <div class="hero" style="position:relative;">
-  <h1>POMO<span>DARE</span></h1>
-  <p class="tagline">Your terminal. Your rival. Your focus.</p>
-  <p class="tagline-secondary">Work harder than your friend.</p>
+  <div class="tomato-rain"></div>
+  <div style="position:relative;z-index:1;">
+    <h1>POMO<span>DARE</span></h1>
+    <p class="tagline">Your terminal. Your rival. Your focus.</p>
+    <p class="tagline-secondary">Work harder than your friend.</p>
 
-  <div class="hero-buttons">
-    <a href="#install" class="btn btn-primary">→ Install</a>
-    <a href="https://github.com/aragosta-bot/pomodare" target="_blank" class="btn btn-ghost">GitHub ↗</a>
+    <div class="hero-buttons">
+      <a href="#install" class="btn btn-primary">→ Install</a>
+      <a href="https://github.com/aragosta-bot/pomodare" target="_blank" class="btn btn-ghost">GitHub ↗</a>
+    </div>
+
+    <div class="scroll-hint">▼ scroll</div>
   </div>
-
-  <div class="scroll-hint">▼ scroll</div>
 </div>
 
 <hr class="divider" />
@@ -463,6 +490,22 @@
 </footer>
 
 <script>
+  (function() {
+    const container = document.querySelector('.tomato-rain');
+    const count = 24;
+    for (let i = 0; i < count; i++) {
+      const drop = document.createElement('span');
+      drop.className = 'tomato-drop';
+      drop.textContent = '🍅';
+      const size = (Math.random() * 1.0 + 0.7).toFixed(2);
+      const left = (Math.random() * 100).toFixed(1);
+      const duration = (Math.random() * 5 + 4).toFixed(1);
+      const delay = (Math.random() * -10).toFixed(1);
+      drop.style.cssText = `left:${left}%;font-size:${size}rem;animation-duration:${duration}s;animation-delay:${delay}s;`;
+      container.appendChild(drop);
+    }
+  })();
+
   function copyCode(btn, id) {
     const pre = document.getElementById(id);
     const text = pre.innerText;
