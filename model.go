@@ -49,21 +49,21 @@ type actionDoneMsg struct {
 
 // Model is the main application state
 type Model struct {
-	screen     Screen
-	supabase   *SupabaseClient
-	playerID   string
-	isHost     bool
-	session    *Session
-	timer      TimerState
-	codeInput  string
-	errMsg     string
-	pollTicker int
-	spinnerIdx int
-	width      int
-	height     int
+	screen       Screen
+	supabase     *SupabaseClient
+	playerID     string
+	isHost       bool
+	session      *Session
+	timer        TimerState
+	codeInput    string
+	errMsg       string
+	pollTicker   int
+	spinnerIdx   int // tomato animation frame index
+	animTick     int // sub-tick counter so we can animate at ~150ms with a 150ms ticker
+	explodeTimer int // counts down ticks while showing explode art
+	width        int
+	height       int
 }
-
-var spinnerFrames = []string{"⣾", "⣽", "⣻", "⢿", "⡿", "⣟", "⣯", "⣷"}
 
 func NewModel() Model {
 	return Model{
@@ -91,7 +91,7 @@ func (m Model) Init() tea.Cmd {
 }
 
 func tickCmd() tea.Cmd {
-	return tea.Tick(500*time.Millisecond, func(t time.Time) tea.Msg {
+	return tea.Tick(150*time.Millisecond, func(t time.Time) tea.Msg {
 		return tickMsg(t)
 	})
 }
@@ -112,13 +112,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tickMsg:
-		m.spinnerIdx = (m.spinnerIdx + 1) % len(spinnerFrames)
+		// Advance tomato animation frame on every tick (~150ms per frame)
+		m.spinnerIdx = (m.spinnerIdx + 1) % len(TomatoFrames)
+
+		// Tick down the round-end explode animation
+		if m.explodeTimer > 0 {
+			m.explodeTimer--
+		}
+
 		cmds := []tea.Cmd{tickCmd()}
 
-		// Poll for session updates every ~3 seconds (6 ticks at 500ms)
+		// Poll for session updates every ~3 seconds (20 ticks at 150ms)
 		if m.session != nil {
 			m.pollTicker++
-			if m.pollTicker >= 6 {
+			if m.pollTicker >= 20 {
 				m.pollTicker = 0
 				cmds = append(cmds, pollSessionCmd(m.supabase, m.session.ID))
 			}
@@ -362,6 +369,8 @@ func (m Model) handleTimerExpired() (tea.Model, tea.Cmd) {
 	if m.session == nil {
 		return m, nil
 	}
+	// Trigger round-end tomato explosion (~7 frames × 150ms ≈ 1s)
+	m.explodeTimer = 7
 
 	iDeclared := (m.isHost && m.session.HostDeclared) || (!m.isHost && m.session.GuestDeclared)
 	iGaveUp := (m.isHost && m.session.HostGaveUp) || (!m.isHost && m.session.GuestGaveUp)
@@ -538,7 +547,12 @@ func (m Model) centerView(content string) string {
 
 func (m Model) viewHome() string {
 	var lines []string
-	lines = append(lines, styleTitle.Render("Pomodare 🍅"))
+	// ASCII tomato logo
+	for _, l := range strings.Split(TomatoLogo, "\n") {
+		lines = append(lines, styleTitle.Render(l))
+	}
+	lines = append(lines, styleTitle.Render("  Pomodare"))
+	lines = append(lines, styleMuted.Render(Tagline))
 	lines = append(lines, "")
 	lines = append(lines, styleKeyHighlight.Render("[N]")+" Nowa sesja")
 	lines = append(lines, styleKeyHighlight.Render("[J]")+" Dołącz do sesji")
@@ -555,13 +569,16 @@ func (m Model) viewWaiting() string {
 	if m.session != nil {
 		code = m.session.Code
 	}
-	spinner := spinnerFrames[m.spinnerIdx]
+	frame := TomatoFrames[m.spinnerIdx]
 	var lines []string
-	lines = append(lines, styleTitle.Render("Pomodare 🍅"))
+	// Spinning tomato
+	for _, l := range strings.Split(frame, "\n") {
+		lines = append(lines, styleTitle.Render(l))
+	}
 	lines = append(lines, "")
 	lines = append(lines, "Twój kod: "+styleCode.Render(code))
 	lines = append(lines, "")
-	lines = append(lines, styleMuted.Render("Czekam na partnera... "+spinner))
+	lines = append(lines, styleMuted.Render("Czekam na partnera..."))
 	lines = append(lines, "")
 	lines = append(lines, styleKey.Render("[Q] Wyjdź"))
 	return m.centerView(strings.Join(lines, "\n"))
@@ -589,16 +606,19 @@ func (m Model) viewLobby() string {
 	if m.isHost {
 		role = "host"
 	}
-	spinner := spinnerFrames[m.spinnerIdx]
+	frame := TomatoFrames[m.spinnerIdx]
 	var lines []string
-	lines = append(lines, styleTitle.Render("Pomodare 🍅"))
-	lines = append(lines, "")
 	lines = append(lines, "Połączono! ("+role+")")
 	lines = append(lines, "")
 	if m.isHost {
 		lines = append(lines, styleKeyHighlight.Render("[S]")+" Start rundy")
 	} else {
-		lines = append(lines, styleMuted.Render("Czekam na hosta... "+spinner))
+		// Spinning tomato while waiting for host
+		for _, l := range strings.Split(frame, "\n") {
+			lines = append(lines, styleTitle.Render(l))
+		}
+		lines = append(lines, "")
+		lines = append(lines, styleMuted.Render("Czekam na hosta..."))
 	}
 	lines = append(lines, "")
 	lines = append(lines, styleKey.Render("[Q] Wyjdź"))
@@ -608,6 +628,17 @@ func (m Model) viewLobby() string {
 func (m Model) viewActive() string {
 	if m.session == nil {
 		return m.centerView("Ładowanie...")
+	}
+
+	// Round-end explosion flash
+	if m.explodeTimer > 0 {
+		var lines []string
+		for _, l := range strings.Split(TomatoExplode, "\n") {
+			lines = append(lines, styleWarning.Render(l))
+		}
+		lines = append(lines, "")
+		lines = append(lines, styleMuted.Render("Runda zakończona!"))
+		return m.centerView(strings.Join(lines, "\n"))
 	}
 
 	round := m.session.Round
@@ -650,13 +681,17 @@ func (m Model) viewBreak() string {
 	timeStr := FormatDuration(remaining)
 	progress := m.timer.Progress()
 	progressBar := renderProgressBar(progress, 22)
-	spinner := spinnerFrames[m.spinnerIdx]
+	frame := TomatoFrames[m.spinnerIdx]
 
 	var lines []string
 	lines = append(lines, fmt.Sprintf("☕ Przerwa  |  %s", styleTimer.Render(timeStr)))
 	lines = append(lines, progressBar)
 	lines = append(lines, "")
-	lines = append(lines, styleMuted.Render("Następna runda za chwilę... "+spinner))
+	for _, l := range strings.Split(frame, "\n") {
+		lines = append(lines, styleMuted.Render(l))
+	}
+	lines = append(lines, "")
+	lines = append(lines, styleMuted.Render("Następna runda za chwilę..."))
 	lines = append(lines, "")
 	lines = append(lines, styleKey.Render("[Q] Wyjdź"))
 	return m.centerView(strings.Join(lines, "\n"))
