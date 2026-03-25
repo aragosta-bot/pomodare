@@ -49,6 +49,13 @@ type actionDoneMsg struct {
 	err     error
 }
 
+// buttonRegion tracks the screen position of a rendered button for mouse click detection.
+type buttonRegion struct {
+	label  string // action label, e.g. "new_session", "quit", "back"
+	y1, y2 int    // row range (inclusive)
+	x1, x2 int    // col range (inclusive)
+}
+
 // Model is the main application state
 type Model struct {
 	screen       Screen
@@ -72,6 +79,9 @@ type Model struct {
 	soloPaused  bool
 	soloElapsed time.Duration // accumulated elapsed before last pause
 	soloRound   int           // current round (1-indexed)
+
+	// Mouse click regions — rebuilt on every View() call
+	buttons []buttonRegion
 }
 
 func NewModel() Model {
@@ -233,9 +243,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleKey(msg)
 
 	case tea.MouseMsg:
-		// Mouse support: handle clicks gracefully
-		if msg.Action == tea.MouseActionRelease {
-			return m, nil
+		if msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft {
+			for _, btn := range m.buttons {
+				if msg.Y >= btn.y1 && msg.Y <= btn.y2 &&
+					msg.X >= btn.x1 && msg.X <= btn.x2 {
+					return m.handleButtonClick(btn.label)
+				}
+			}
 		}
 		return m, nil
 	}
@@ -583,6 +597,84 @@ func (m Model) giveUpCmd() tea.Cmd {
 	}
 }
 
+// handleButtonClick dispatches a mouse click on a named button to the same
+// logic used by the keyboard handler.
+func (m Model) handleButtonClick(label string) (tea.Model, tea.Cmd) {
+	switch label {
+	case "new_session":
+		m.errMsg = ""
+		return m, m.createSessionCmd()
+	case "join_screen":
+		m.screen = ScreenJoin
+		m.codeInput = ""
+		m.errMsg = ""
+		return m, nil
+	case "solo":
+		m.screen = ScreenSolo
+		m.soloPhase = PhaseWork
+		m.soloStart = time.Now()
+		m.soloElapsed = 0
+		m.soloPaused = false
+		m.soloRound = 1
+		m.errMsg = ""
+		return m, nil
+	case "quit":
+		m.cleanupSession()
+		return m, tea.Quit
+	case "back":
+		m.cleanupSession()
+		m.session = nil
+		m.isHost = false
+		m.screen = ScreenHome
+		return m, nil
+	case "join_submit":
+		if len(m.codeInput) == 4 {
+			return m, m.joinSessionCmd(m.codeInput)
+		}
+		return m, nil
+	case "start_round":
+		if m.isHost {
+			return m, m.startRoundCmd()
+		}
+		return m, nil
+	case "working":
+		if m.timer.CanDeclare() {
+			return m, m.declareCmd()
+		}
+		return m, nil
+	case "giveup":
+		if m.timer.CanGiveUp() {
+			return m, m.giveUpCmd()
+		}
+		return m, nil
+	case "pause_resume":
+		if m.soloPaused {
+			m.soloStart = time.Now()
+			m.soloPaused = false
+		} else {
+			m.soloElapsed += time.Since(m.soloStart)
+			m.soloPaused = true
+		}
+		return m, nil
+	case "skip_break":
+		if m.soloPhase == PhaseBreak {
+			m.soloPhase = PhaseWork
+			m.soloStart = time.Now()
+			m.soloElapsed = 0
+			m.soloPaused = false
+		}
+		return m, nil
+	case "solo_quit":
+		m.screen = ScreenSoloDone
+		return m, nil
+	case "new_home":
+		m.screen = ScreenHome
+		m.session = nil
+		return m, nil
+	}
+	return m, nil
+}
+
 // View
 func (m Model) View() string {
 	switch m.screen {
@@ -608,9 +700,11 @@ func (m Model) View() string {
 	return ""
 }
 
-func (m Model) centerView(content string) string {
+// centerOffsets returns the (paddingTop, paddingLeft) added by centerView for
+// a given content string, so callers can shift button regions accordingly.
+func (m Model) centerOffsets(content string) (int, int) {
 	if m.width == 0 {
-		return content
+		return 0, 0
 	}
 	lines := strings.Split(content, "\n")
 	contentH := len(lines)
@@ -621,7 +715,6 @@ func (m Model) centerView(content string) string {
 			contentW = w
 		}
 	}
-
 	paddingTop := (m.height - contentH) / 2
 	if paddingTop < 0 {
 		paddingTop = 0
@@ -630,10 +723,19 @@ func (m Model) centerView(content string) string {
 	if paddingLeft < 0 {
 		paddingLeft = 0
 	}
+	return paddingTop, paddingLeft
+}
+
+func (m Model) centerView(content string) string {
+	if m.width == 0 {
+		return content
+	}
+	paddingTop, paddingLeft := m.centerOffsets(content)
 
 	topPad := strings.Repeat("\n", paddingTop)
 	leftPad := strings.Repeat(" ", paddingLeft)
 
+	lines := strings.Split(content, "\n")
 	result := topPad
 	for _, l := range lines {
 		result += leftPad + l + "\n"
@@ -641,85 +743,175 @@ func (m Model) centerView(content string) string {
 	return result
 }
 
-func (m Model) viewHome() string {
+// registerButtons registers clickable button regions for a view.
+// lineButtons maps content-relative line number → (label, rendered text).
+// topOff/leftOff are the centering offsets from centerOffsets().
+func (m *Model) registerButtons(lineButtons map[int][]struct{ label, text string }, topOff, leftOff int) {
+	for lineNum, btns := range lineButtons {
+		absY := topOff + lineNum
+		// Track horizontal cursor position within the line to find each button
+		col := leftOff
+		for _, btn := range btns {
+			w := lipgloss.Width(btn.text)
+			m.buttons = append(m.buttons, buttonRegion{
+				label: btn.label,
+				y1:    absY, y2: absY,
+				x1: col, x2: col + w - 1,
+			})
+			col += w + 2 // approximate spacing between buttons on same line
+		}
+	}
+}
+
+func (m *Model) viewHome() string {
+	m.buttons = nil
+	btnNew := renderButton("New session")
+	btnJoin := renderButton("Join session")
+	btnSolo := renderButton("Solo mode")
+	btnQuit := renderButton("Quit")
+
 	var lines []string
-	// ASCII tomato logo
+	// ASCII tomato logo (3 lines)
 	for _, l := range strings.Split(TomatoLogo, "\n") {
 		lines = append(lines, styleTitle.Render(l))
 	}
-	lines = append(lines, styleTitle.Render("  Pomodare"))
-	lines = append(lines, styleMuted.Render(Tagline))
-	lines = append(lines, "")
-	lines = append(lines, styleKeyHighlight.Render("[N]")+" New session")
-	lines = append(lines, styleKeyHighlight.Render("[J]")+" Join session")
-	lines = append(lines, styleKeyHighlight.Render("[S]")+" Solo mode")
-	lines = append(lines, "")
+	lines = append(lines, styleTitle.Render("  Pomodare"))  // line 3
+	lines = append(lines, styleMuted.Render(Tagline))       // line 4
+	lines = append(lines, "")                               // line 5
+	lines = append(lines, btnNew)                           // line 6
+	lines = append(lines, btnJoin)                          // line 7
+	lines = append(lines, btnSolo)                          // line 8
+	lines = append(lines, "")                               // line 9
 	if m.errMsg != "" {
 		lines = append(lines, styleWarning.Render(truncate(m.errMsg, 46)))
+		lines = append(lines, btnQuit) // line 11
+	} else {
+		lines = append(lines, btnQuit) // line 10
 	}
-	lines = append(lines, styleKey.Render("[Q] Quit"))
-	return m.centerView(strings.Join(lines, "\n"))
+
+	content := strings.Join(lines, "\n")
+	topOff, leftOff := m.centerOffsets(content)
+
+	quitLine := 10
+	if m.errMsg != "" {
+		quitLine = 11
+	}
+	m.registerButtons(map[int][]struct{ label, text string }{
+		6:        {{label: "new_session", text: btnNew}},
+		7:        {{label: "join_screen", text: btnJoin}},
+		8:        {{label: "solo", text: btnSolo}},
+		quitLine: {{label: "quit", text: btnQuit}},
+	}, topOff, leftOff)
+
+	return m.centerView(content)
 }
 
-func (m Model) viewWaiting() string {
+func (m *Model) viewWaiting() string {
+	m.buttons = nil
 	code := "????"
 	if m.session != nil {
 		code = m.session.Code
 	}
 	frame := TomatoFrames[m.spinnerIdx]
+	btnBack := renderButton("Back")
+	btnQuit := renderButton("Quit")
+
 	var lines []string
-	// Spinning tomato
 	for _, l := range strings.Split(frame, "\n") {
 		lines = append(lines, styleTitle.Render(l))
 	}
-	lines = append(lines, "")
-	lines = append(lines, "Your code: "+styleCode.Render(code))
-	lines = append(lines, "")
-	lines = append(lines, styleMuted.Render("Waiting for partner..."))
-	lines = append(lines, "")
-	lines = append(lines, styleKeyHighlight.Render("[B]")+" Back  "+styleKey.Render("[Q] Quit"))
-	return m.centerView(strings.Join(lines, "\n"))
+	// frame = 3 lines (0,1,2)
+	lines = append(lines, "")                                     // 3
+	lines = append(lines, "Your code: "+styleCode.Render(code))  // 4
+	lines = append(lines, "")                                     // 5
+	lines = append(lines, styleMuted.Render("Waiting for partner...")) // 6
+	lines = append(lines, "")                                     // 7
+	lines = append(lines, btnBack+"  "+btnQuit)                   // 8
+
+	content := strings.Join(lines, "\n")
+	topOff, leftOff := m.centerOffsets(content)
+	m.registerButtons(map[int][]struct{ label, text string }{
+		8: {
+			{label: "back", text: btnBack},
+			{label: "quit", text: btnQuit},
+		},
+	}, topOff, leftOff)
+
+	return m.centerView(content)
 }
 
-func (m Model) viewJoin() string {
+func (m *Model) viewJoin() string {
+	m.buttons = nil
 	codeDisplay := m.codeInput + strings.Repeat("_", 4-len(m.codeInput))
+	btnJoin := renderButton("Join")
+	btnBack := renderButton("Back")
+	btnQuit := renderButton("Quit")
+
 	var lines []string
-	lines = append(lines, styleTitle.Render("Pomodare 🍅"))
-	lines = append(lines, "")
-	lines = append(lines, "Kod: "+styleCode.Render(codeDisplay))
-	lines = append(lines, "")
+	lines = append(lines, styleTitle.Render("Pomodare 🍅")) // 0
+	lines = append(lines, "")                               // 1
+	lines = append(lines, "Kod: "+styleCode.Render(codeDisplay)) // 2
+	lines = append(lines, "")                               // 3
 	if m.errMsg != "" {
-		lines = append(lines, styleWarning.Render(truncate(m.errMsg, 46)))
+		lines = append(lines, styleWarning.Render(truncate(m.errMsg, 46))) // 4
 	} else {
-		lines = append(lines, styleMuted.Render("Enter 4 letters and press Enter"))
+		lines = append(lines, styleMuted.Render("Enter 4 letters and press Enter")) // 4
 	}
-	lines = append(lines, "")
-	lines = append(lines, styleKey.Render("[Enter] Join  [Esc] Back  [Q] Quit"))
-	return m.centerView(strings.Join(lines, "\n"))
+	lines = append(lines, "")                               // 5
+	lines = append(lines, btnJoin+"  "+btnBack+"  "+btnQuit) // 6
+
+	content := strings.Join(lines, "\n")
+	topOff, leftOff := m.centerOffsets(content)
+	m.registerButtons(map[int][]struct{ label, text string }{
+		6: {
+			{label: "join_submit", text: btnJoin},
+			{label: "back", text: btnBack},
+			{label: "quit", text: btnQuit},
+		},
+	}, topOff, leftOff)
+
+	return m.centerView(content)
 }
 
-func (m Model) viewLobby() string {
+func (m *Model) viewLobby() string {
+	m.buttons = nil
 	role := "guest"
 	if m.isHost {
 		role = "host"
 	}
 	frame := TomatoFrames[m.spinnerIdx]
+	btnQuit := renderButton("Quit")
+
 	var lines []string
-	lines = append(lines, "Connected! ("+role+")")
-	lines = append(lines, "")
+	lines = append(lines, "Connected! ("+role+")") // 0
+	lines = append(lines, "")                      // 1
+
+	lineButtons := map[int][]struct{ label, text string }{}
+
 	if m.isHost {
-		lines = append(lines, styleKeyHighlight.Render("[S]")+" Start round")
+		btnStart := renderKeyButton("S", "Start round")
+		lines = append(lines, btnStart) // 2
+		lines = append(lines, "")       // 3
+		lines = append(lines, btnQuit)  // 4
+		lineButtons[2] = []struct{ label, text string }{{label: "start_round", text: btnStart}}
+		lineButtons[4] = []struct{ label, text string }{{label: "quit", text: btnQuit}}
 	} else {
-		// Spinning tomato while waiting for host
 		for _, l := range strings.Split(frame, "\n") {
 			lines = append(lines, styleTitle.Render(l))
 		}
-		lines = append(lines, "")
-		lines = append(lines, styleMuted.Render("Waiting for host..."))
+		// frame lines 2,3,4
+		lines = append(lines, "")                              // 5
+		lines = append(lines, styleMuted.Render("Waiting for host...")) // 6
+		lines = append(lines, "")                              // 7
+		lines = append(lines, btnQuit)                         // 8
+		lineButtons[8] = []struct{ label, text string }{{label: "quit", text: btnQuit}}
 	}
-	lines = append(lines, "")
-	lines = append(lines, styleKey.Render("[Q] Quit"))
-	return m.centerView(strings.Join(lines, "\n"))
+
+	content := strings.Join(lines, "\n")
+	topOff, leftOff := m.centerOffsets(content)
+	m.registerButtons(lineButtons, topOff, leftOff)
+
+	return m.centerView(content)
 }
 
 func (m Model) viewActive() string {
@@ -762,12 +954,12 @@ func (m Model) viewActive() string {
 
 	var ctrlParts []string
 	if m.timer.CanDeclare() && !myDeclared {
-		ctrlParts = append(ctrlParts, styleKeyHighlight.Render("[P]")+" Working")
+		ctrlParts = append(ctrlParts, renderKeyButton("P", "Working"))
 	}
 	if m.timer.CanGiveUp() {
-		ctrlParts = append(ctrlParts, styleKeyHighlight.Render("[G]")+" Give up")
+		ctrlParts = append(ctrlParts, renderButton("Give up"))
 	}
-	ctrlParts = append(ctrlParts, styleKeyHighlight.Render("[Q]")+" Quit")
+	ctrlParts = append(ctrlParts, renderButton("Quit"))
 	lines = append(lines, strings.Join(ctrlParts, "  "))
 
 	return m.centerView(strings.Join(lines, "\n"))
@@ -790,7 +982,7 @@ func (m Model) viewBreak() string {
 	lines = append(lines, "")
 	lines = append(lines, styleMuted.Render("Next round in a moment..."))
 	lines = append(lines, "")
-	lines = append(lines, styleKey.Render("[Q] Quit"))
+	lines = append(lines, renderButton("Quit"))
 	return m.centerView(strings.Join(lines, "\n"))
 }
 
@@ -813,7 +1005,7 @@ func (m Model) viewResult() string {
 	lines = append(lines, fmt.Sprintf("You:     %s", styleSuccess.Render(fmt.Sprintf("%d/%d rounds", myScore, TotalRounds))))
 	lines = append(lines, fmt.Sprintf("Partner: %s", styleMuted.Render(fmt.Sprintf("%d/%d rounds", partnerScore, TotalRounds))))
 	lines = append(lines, "")
-	lines = append(lines, styleKeyHighlight.Render("[N]")+" New session  "+styleKeyHighlight.Render("[Q]")+" Quit")
+	lines = append(lines, renderButton("New session")+"  "+renderButton("Quit"))
 	return m.centerView(strings.Join(lines, "\n"))
 }
 
@@ -863,20 +1055,20 @@ func (m Model) viewSolo() string {
 		lines = append(lines, styleTitle.Render(header))
 		lines = append(lines, bar+"  "+styleTimer.Render(timeStr))
 		lines = append(lines, "")
-		lines = append(lines, styleKeyHighlight.Render("[P]")+" Resume  "+styleKey.Render("[Q] Quit"))
+		lines = append(lines, renderKeyButton("P", "Resume")+"  "+renderButton("Quit"))
 	case m.soloPhase == PhaseBreak:
 		header = fmt.Sprintf("☕ Break — %s", FormatDuration(BreakDuration))
 		lines = append(lines, styleTitle.Render(header))
 		lines = append(lines, bar+"  "+styleTimer.Render(timeStr))
 		lines = append(lines, "")
 		lines = append(lines, styleMuted.Render("Press any key to skip break"))
-		lines = append(lines, styleKey.Render("[Q] Quit"))
+		lines = append(lines, renderButton("Quit"))
 	default:
 		header = fmt.Sprintf("🍅 Solo — Round %d", m.soloRound)
 		lines = append(lines, styleTitle.Render(header))
 		lines = append(lines, bar+"  "+styleTimer.Render(timeStr))
 		lines = append(lines, "")
-		lines = append(lines, styleKeyHighlight.Render("[P]")+" Pause  "+styleKey.Render("[Q] Quit"))
+		lines = append(lines, renderKeyButton("P", "Pause")+"  "+renderButton("Quit"))
 	}
 
 	return m.centerView(strings.Join(lines, "\n"))
@@ -899,7 +1091,7 @@ func (m Model) viewSoloDone() string {
 	lines = append(lines, styleTitle.Render("Session complete"))
 	lines = append(lines, fmt.Sprintf("Rounds: %s", styleSuccess.Render(fmt.Sprintf("%d", completed))))
 	lines = append(lines, "")
-	lines = append(lines, styleKeyHighlight.Render("[N]")+" New session  "+styleKey.Render("[Q] Quit"))
+	lines = append(lines, renderButton("New session")+"  "+renderButton("Quit"))
 	return m.centerView(strings.Join(lines, "\n"))
 }
 
