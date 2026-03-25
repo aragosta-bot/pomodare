@@ -82,7 +82,7 @@ func generatePlayerID() string {
 // cleanupSession deletes the session from Supabase if this player is the host.
 func (m Model) cleanupSession() {
 	if m.session != nil && m.isHost {
-		m.supabase.DeleteSession(m.session.ID)
+		_ = m.supabase.DeleteSession(m.session.ID)
 	}
 }
 
