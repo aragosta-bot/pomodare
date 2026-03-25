@@ -1,6 +1,33 @@
 # Pomodare 🍅
 
-Synchronized Pomodoro timer for two remote people. Connect via a 4-letter code, declare you're working, and track rounds together.
+Synchronized Pomodoro timer for two remote people.
+
+## Install
+
+Download the latest binary for your platform from [Releases](https://github.com/aragosta-bot/pomodare/releases):
+
+**macOS (Apple Silicon):**
+```bash
+curl -L https://github.com/aragosta-bot/pomodare/releases/latest/download/pomodare-darwin-arm64 -o pomodare
+chmod +x pomodare
+./pomodare
+```
+
+**macOS (Intel):**
+```bash
+curl -L https://github.com/aragosta-bot/pomodare/releases/latest/download/pomodare-darwin-amd64 -o pomodare
+chmod +x pomodare
+./pomodare
+```
+
+**Linux:**
+```bash
+curl -L https://github.com/aragosta-bot/pomodare/releases/latest/download/pomodare-linux-amd64 -o pomodare
+chmod +x pomodare
+./pomodare
+```
+
+No Go installation required. Connect via a 4-letter code, declare you're working, and track rounds together.
 
 ## What it does
 
