@@ -79,6 +79,13 @@ func generatePlayerID() string {
 	return hex.EncodeToString(b)
 }
 
+// cleanupSession deletes the session from Supabase if this player is the host.
+func (m Model) cleanupSession() {
+	if m.session != nil && m.isHost {
+		m.supabase.DeleteSession(m.session.ID)
+	}
+}
+
 func (m Model) Init() tea.Cmd {
 	return tickCmd()
 }
@@ -181,6 +188,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		// Global quit handler — always active regardless of screen
 		if msg.String() == "ctrl+c" || msg.String() == "ctrl+C" {
+			m.cleanupSession()
 			return m, tea.Quit
 		}
 		return m.handleKey(msg)
@@ -197,6 +205,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case ScreenHome:
 		switch key {
 		case "q", "ctrl+c":
+			m.cleanupSession()
 			return m, tea.Quit
 		case "n":
 			m.errMsg = ""
@@ -233,12 +242,14 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case ScreenWaiting:
 		switch key {
 		case "q", "ctrl+c":
+			m.cleanupSession()
 			return m, tea.Quit
 		}
 
 	case ScreenLobby:
 		switch key {
 		case "q", "ctrl+c":
+			m.cleanupSession()
 			return m, tea.Quit
 		case "s":
 			// Host can start the round
@@ -250,6 +261,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case ScreenActive:
 		switch key {
 		case "q", "ctrl+c":
+			m.cleanupSession()
 			return m, tea.Quit
 		case "p":
 			if m.timer.CanDeclare() {
@@ -264,12 +276,14 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case ScreenBreak:
 		switch key {
 		case "q", "ctrl+c":
+			m.cleanupSession()
 			return m, tea.Quit
 		}
 
 	case ScreenResult:
 		switch key {
 		case "q", "ctrl+c":
+			m.cleanupSession()
 			return m, tea.Quit
 		case "n":
 			m.screen = ScreenHome

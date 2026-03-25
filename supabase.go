@@ -255,6 +255,12 @@ func (s *SupabaseClient) GiveUp(sessionID string, isHost bool) (*Session, error)
 	return s.UpdateSession(sessionID, map[string]interface{}{field: true})
 }
 
+// DeleteSession removes a session by ID (called on host quit)
+func (s *SupabaseClient) DeleteSession(id string) error {
+	_, _, err := s.doRequest("DELETE", "sessions?id=eq."+id, nil)
+	return err
+}
+
 // generateCode creates a random 4-letter code (CVCV pattern for pronounceability)
 func generateCode() string {
 	consonants := []byte("BCDFGHJKLMNPRSTVWXZ")

@@ -65,3 +65,20 @@ schema.sql    — Supabase table schema
 ## Database
 
 The Supabase `sessions` table is defined in `schema.sql`. Run it in the Supabase SQL editor to set up the backend.
+
+### Session cleanup
+
+When the host quits (any screen), the session is automatically deleted from Supabase via the Go client.
+
+Supabase's `pg_cron` extension is not enabled on this project, so there is no scheduled cleanup job. To manually remove stale sessions (older than 2 hours), run the following SQL in the Supabase SQL editor:
+
+```sql
+DELETE FROM sessions WHERE created_at < now() - interval '2 hours';
+```
+
+To enable automatic cleanup, activate the `pg_cron` extension in your Supabase project and run:
+
+```sql
+SELECT cron.schedule('cleanup-old-sessions', '0 * * * *',
+  $$DELETE FROM sessions WHERE created_at < now() - interval '2 hours'$$);
+```
