@@ -22,6 +22,8 @@ const (
 	ScreenActive         // timer running
 	ScreenBreak          // break between rounds
 	ScreenResult         // final results
+	ScreenSolo           // solo mode: local 25/5 timer
+	ScreenSoloDone       // solo session ended
 )
 
 // Messages
@@ -63,6 +65,13 @@ type Model struct {
 	explodeTimer int // counts down ticks while showing explode art
 	width        int
 	height       int
+
+	// Solo mode state
+	soloPhase   Phase         // PhaseWork or PhaseBreak
+	soloStart   time.Time     // when current phase started (or resumed)
+	soloPaused  bool
+	soloElapsed time.Duration // accumulated elapsed before last pause
+	soloRound   int           // current round (1-indexed)
 }
 
 func NewModel() Model {
@@ -140,6 +149,29 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.screen == ScreenBreak && !m.timer.StartedAt.IsZero() {
 			if m.timer.IsExpired() {
 				return m.handleBreakExpired()
+			}
+		}
+
+		// Solo timer expiry
+		if m.screen == ScreenSolo && !m.soloPaused {
+			elapsed := m.soloElapsed + time.Since(m.soloStart)
+			phaseDur := WorkDuration
+			if m.soloPhase == PhaseBreak {
+				phaseDur = BreakDuration
+			}
+			if elapsed >= phaseDur {
+				if m.soloPhase == PhaseWork {
+					// Work done → break
+					m.soloRound++ // increment when work phase completes
+					m.soloPhase = PhaseBreak
+					m.soloStart = time.Now()
+					m.soloElapsed = 0
+				} else {
+					// Break done → next work (round already incremented when work ended)
+					m.soloPhase = PhaseWork
+					m.soloStart = time.Now()
+					m.soloElapsed = 0
+				}
 			}
 		}
 
@@ -222,6 +254,15 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.codeInput = ""
 			m.errMsg = ""
 			return m, nil
+		case "s":
+			m.screen = ScreenSolo
+			m.soloPhase = PhaseWork
+			m.soloStart = time.Now()
+			m.soloElapsed = 0
+			m.soloPaused = false
+			m.soloRound = 1
+			m.errMsg = ""
+			return m, nil
 		}
 
 	case ScreenJoin:
@@ -295,6 +336,44 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "n":
 			m.screen = ScreenHome
 			m.session = nil
+			return m, nil
+		}
+
+	case ScreenSolo:
+		switch key {
+		case "q":
+			m.screen = ScreenSoloDone
+			return m, nil
+		case "ctrl+c":
+			return m, tea.Quit
+		case "p":
+			if m.soloPaused {
+				// Resume: shift soloStart forward by paused duration
+				m.soloStart = time.Now()
+				m.soloPaused = false
+			} else {
+				// Pause: accumulate elapsed
+				m.soloElapsed += time.Since(m.soloStart)
+				m.soloPaused = true
+			}
+			return m, nil
+		default:
+			// Any key skips break (round was already incremented when work ended)
+			if m.soloPhase == PhaseBreak {
+				m.soloPhase = PhaseWork
+				m.soloStart = time.Now()
+				m.soloElapsed = 0
+				m.soloPaused = false
+				return m, nil
+			}
+		}
+
+	case ScreenSoloDone:
+		switch key {
+		case "q", "ctrl+c":
+			return m, tea.Quit
+		case "n":
+			m.screen = ScreenHome
 			return m, nil
 		}
 	}
@@ -508,6 +587,10 @@ func (m Model) View() string {
 		return m.viewBreak()
 	case ScreenResult:
 		return m.viewResult()
+	case ScreenSolo:
+		return m.viewSolo()
+	case ScreenSoloDone:
+		return m.viewSoloDone()
 	}
 	return ""
 }
@@ -556,6 +639,7 @@ func (m Model) viewHome() string {
 	lines = append(lines, "")
 	lines = append(lines, styleKeyHighlight.Render("[N]")+" Nowa sesja")
 	lines = append(lines, styleKeyHighlight.Render("[J]")+" Dołącz do sesji")
+	lines = append(lines, styleKeyHighlight.Render("[S]")+" Tryb solo")
 	lines = append(lines, "")
 	if m.errMsg != "" {
 		lines = append(lines, styleWarning.Render(truncate(m.errMsg, 46)))
@@ -717,6 +801,92 @@ func (m Model) viewResult() string {
 	lines = append(lines, fmt.Sprintf("Partner: %s", styleMuted.Render(fmt.Sprintf("%d/%d rund", partnerScore, TotalRounds))))
 	lines = append(lines, "")
 	lines = append(lines, styleKeyHighlight.Render("[N]")+" Nowa sesja  "+styleKeyHighlight.Render("[Q]")+" Wyjdź")
+	return m.centerView(strings.Join(lines, "\n"))
+}
+
+func (m Model) soloElapsedTotal() time.Duration {
+	if m.soloPaused {
+		return m.soloElapsed
+	}
+	return m.soloElapsed + time.Since(m.soloStart)
+}
+
+func (m Model) soloRemaining() time.Duration {
+	phaseDur := WorkDuration
+	if m.soloPhase == PhaseBreak {
+		phaseDur = BreakDuration
+	}
+	rem := phaseDur - m.soloElapsedTotal()
+	if rem < 0 {
+		rem = 0
+	}
+	return rem
+}
+
+func (m Model) soloProgress() float64 {
+	phaseDur := WorkDuration
+	if m.soloPhase == PhaseBreak {
+		phaseDur = BreakDuration
+	}
+	elapsed := m.soloElapsedTotal()
+	if elapsed >= phaseDur {
+		return 1.0
+	}
+	return float64(elapsed) / float64(phaseDur)
+}
+
+func (m Model) viewSolo() string {
+	remaining := m.soloRemaining()
+	timeStr := FormatDuration(remaining)
+	progress := m.soloProgress()
+	bar := renderProgressBar(progress, 20)
+
+	var header string
+	var lines []string
+
+	switch {
+	case m.soloPaused:
+		header = fmt.Sprintf("⏸ Paused — Round %d", m.soloRound)
+		lines = append(lines, styleTitle.Render(header))
+		lines = append(lines, bar+"  "+styleTimer.Render(timeStr))
+		lines = append(lines, "")
+		lines = append(lines, styleKeyHighlight.Render("[P]")+" Resume  "+styleKey.Render("[Q] Quit"))
+	case m.soloPhase == PhaseBreak:
+		header = fmt.Sprintf("☕ Break — %s", FormatDuration(BreakDuration))
+		lines = append(lines, styleTitle.Render(header))
+		lines = append(lines, bar+"  "+styleTimer.Render(timeStr))
+		lines = append(lines, "")
+		lines = append(lines, styleMuted.Render("Press any key to skip break"))
+		lines = append(lines, styleKey.Render("[Q] Quit"))
+	default:
+		header = fmt.Sprintf("🍅 Solo — Round %d", m.soloRound)
+		lines = append(lines, styleTitle.Render(header))
+		lines = append(lines, bar+"  "+styleTimer.Render(timeStr))
+		lines = append(lines, "")
+		lines = append(lines, styleKeyHighlight.Render("[P]")+" Pause  "+styleKey.Render("[Q] Quit"))
+	}
+
+	return m.centerView(strings.Join(lines, "\n"))
+}
+
+func (m Model) viewSoloDone() string {
+	// soloRound was incremented when work ended, so completed rounds = soloRound - 1
+	// unless we quit during work phase (soloRound is still the current one)
+	// We track how many work phases completed: that's soloRound - 1 if currently in break/work after break
+	// Simple approach: show soloRound - 1 if phase is work (quit mid-work), soloRound if quit during break
+	completed := m.soloRound - 1
+	if m.soloPhase == PhaseBreak {
+		completed = m.soloRound - 1 // already incremented
+	}
+	if completed < 0 {
+		completed = 0
+	}
+
+	var lines []string
+	lines = append(lines, styleTitle.Render("Session complete"))
+	lines = append(lines, fmt.Sprintf("Rounds: %s", styleSuccess.Render(fmt.Sprintf("%d", completed))))
+	lines = append(lines, "")
+	lines = append(lines, styleKeyHighlight.Render("[N]")+" New session  "+styleKey.Render("[Q] Quit"))
 	return m.centerView(strings.Join(lines, "\n"))
 }
 
