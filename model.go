@@ -186,7 +186,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case sessionCreatedMsg:
 		if msg.err != nil {
-			m.errMsg = "Błąd tworzenia sesji: " + msg.err.Error()
+			m.errMsg = "Error creating session: " + msg.err.Error()
 			m.screen = ScreenHome
 			return m, nil
 		}
@@ -198,7 +198,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case sessionJoinedMsg:
 		if msg.err != nil {
-			m.errMsg = "Błąd dołączania: " + msg.err.Error()
+			m.errMsg = "Error joining: " + msg.err.Error()
 			m.screen = ScreenJoin
 			return m, nil
 		}
@@ -210,7 +210,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case roundStartedMsg:
 		if msg.err != nil {
-			m.errMsg = "Błąd startu rundy: " + msg.err.Error()
+			m.errMsg = "Error starting round: " + msg.err.Error()
 			return m, nil
 		}
 		m.session = msg.session
@@ -538,7 +538,7 @@ func (m Model) joinSessionCmd(code string) tea.Cmd {
 			return sessionJoinedMsg{err: err}
 		}
 		if sess.State != "waiting" {
-			return sessionJoinedMsg{err: fmt.Errorf("sesja jest zajęta lub zakończona")}
+			return sessionJoinedMsg{err: fmt.Errorf("session is busy or ended")}
 		}
 		joined, err := m.supabase.JoinSession(sess.ID, m.playerID)
 		return sessionJoinedMsg{session: joined, err: err}
@@ -637,14 +637,14 @@ func (m Model) viewHome() string {
 	lines = append(lines, styleTitle.Render("  Pomodare"))
 	lines = append(lines, styleMuted.Render(Tagline))
 	lines = append(lines, "")
-	lines = append(lines, styleKeyHighlight.Render("[N]")+" Nowa sesja")
-	lines = append(lines, styleKeyHighlight.Render("[J]")+" Dołącz do sesji")
-	lines = append(lines, styleKeyHighlight.Render("[S]")+" Tryb solo")
+	lines = append(lines, styleKeyHighlight.Render("[N]")+" New session")
+	lines = append(lines, styleKeyHighlight.Render("[J]")+" Join session")
+	lines = append(lines, styleKeyHighlight.Render("[S]")+" Solo mode")
 	lines = append(lines, "")
 	if m.errMsg != "" {
 		lines = append(lines, styleWarning.Render(truncate(m.errMsg, 46)))
 	}
-	lines = append(lines, styleKey.Render("[Q] Wyjdź"))
+	lines = append(lines, styleKey.Render("[Q] Quit"))
 	return m.centerView(strings.Join(lines, "\n"))
 }
 
@@ -660,11 +660,11 @@ func (m Model) viewWaiting() string {
 		lines = append(lines, styleTitle.Render(l))
 	}
 	lines = append(lines, "")
-	lines = append(lines, "Twój kod: "+styleCode.Render(code))
+	lines = append(lines, "Your code: "+styleCode.Render(code))
 	lines = append(lines, "")
-	lines = append(lines, styleMuted.Render("Czekam na partnera..."))
+	lines = append(lines, styleMuted.Render("Waiting for partner..."))
 	lines = append(lines, "")
-	lines = append(lines, styleKey.Render("[Q] Wyjdź"))
+	lines = append(lines, styleKey.Render("[Q] Quit"))
 	return m.centerView(strings.Join(lines, "\n"))
 }
 
@@ -678,40 +678,40 @@ func (m Model) viewJoin() string {
 	if m.errMsg != "" {
 		lines = append(lines, styleWarning.Render(truncate(m.errMsg, 46)))
 	} else {
-		lines = append(lines, styleMuted.Render("Wpisz 4 litery i Enter"))
+		lines = append(lines, styleMuted.Render("Enter 4 letters and press Enter"))
 	}
 	lines = append(lines, "")
-	lines = append(lines, styleKey.Render("[Enter] Dołącz  [Esc] Wróć  [Q] Wyjdź"))
+	lines = append(lines, styleKey.Render("[Enter] Join  [Esc] Back  [Q] Quit"))
 	return m.centerView(strings.Join(lines, "\n"))
 }
 
 func (m Model) viewLobby() string {
-	role := "gość"
+	role := "guest"
 	if m.isHost {
 		role = "host"
 	}
 	frame := TomatoFrames[m.spinnerIdx]
 	var lines []string
-	lines = append(lines, "Połączono! ("+role+")")
+	lines = append(lines, "Connected! ("+role+")")
 	lines = append(lines, "")
 	if m.isHost {
-		lines = append(lines, styleKeyHighlight.Render("[S]")+" Start rundy")
+		lines = append(lines, styleKeyHighlight.Render("[S]")+" Start round")
 	} else {
 		// Spinning tomato while waiting for host
 		for _, l := range strings.Split(frame, "\n") {
 			lines = append(lines, styleTitle.Render(l))
 		}
 		lines = append(lines, "")
-		lines = append(lines, styleMuted.Render("Czekam na hosta..."))
+		lines = append(lines, styleMuted.Render("Waiting for host..."))
 	}
 	lines = append(lines, "")
-	lines = append(lines, styleKey.Render("[Q] Wyjdź"))
+	lines = append(lines, styleKey.Render("[Q] Quit"))
 	return m.centerView(strings.Join(lines, "\n"))
 }
 
 func (m Model) viewActive() string {
 	if m.session == nil {
-		return m.centerView("Ładowanie...")
+		return m.centerView("Loading...")
 	}
 
 	// Round-end explosion flash
@@ -721,7 +721,7 @@ func (m Model) viewActive() string {
 			lines = append(lines, styleWarning.Render(l))
 		}
 		lines = append(lines, "")
-		lines = append(lines, styleMuted.Render("Runda zakończona!"))
+		lines = append(lines, styleMuted.Render("Round over!"))
 		return m.centerView(strings.Join(lines, "\n"))
 	}
 
@@ -741,20 +741,20 @@ func (m Model) viewActive() string {
 	progressBar := renderProgressBar(progress, 22)
 
 	var lines []string
-	lines = append(lines, fmt.Sprintf("🍅 Runda %d/%d  |  %s", round, TotalRounds, styleTimer.Render(timeStr)))
+	lines = append(lines, fmt.Sprintf("🍅 Round %d/%d  |  %s", round, TotalRounds, styleTimer.Render(timeStr)))
 	lines = append(lines, progressBar)
 	lines = append(lines, "")
-	lines = append(lines, "Ty: "+myStatus+"  Partner: "+partnerStatus)
+	lines = append(lines, "You: "+myStatus+"  Partner: "+partnerStatus)
 	lines = append(lines, "")
 
 	var ctrlParts []string
 	if m.timer.CanDeclare() && !myDeclared {
-		ctrlParts = append(ctrlParts, styleKeyHighlight.Render("[P]")+" Pracuję")
+		ctrlParts = append(ctrlParts, styleKeyHighlight.Render("[P]")+" Working")
 	}
 	if m.timer.CanGiveUp() {
-		ctrlParts = append(ctrlParts, styleKeyHighlight.Render("[G]")+" Rezygnuj")
+		ctrlParts = append(ctrlParts, styleKeyHighlight.Render("[G]")+" Give up")
 	}
-	ctrlParts = append(ctrlParts, styleKeyHighlight.Render("[Q]")+" Wyjdź")
+	ctrlParts = append(ctrlParts, styleKeyHighlight.Render("[Q]")+" Quit")
 	lines = append(lines, strings.Join(ctrlParts, "  "))
 
 	return m.centerView(strings.Join(lines, "\n"))
@@ -768,16 +768,16 @@ func (m Model) viewBreak() string {
 	frame := TomatoFrames[m.spinnerIdx]
 
 	var lines []string
-	lines = append(lines, fmt.Sprintf("☕ Przerwa  |  %s", styleTimer.Render(timeStr)))
+	lines = append(lines, fmt.Sprintf("☕ Break  |  %s", styleTimer.Render(timeStr)))
 	lines = append(lines, progressBar)
 	lines = append(lines, "")
 	for _, l := range strings.Split(frame, "\n") {
 		lines = append(lines, styleMuted.Render(l))
 	}
 	lines = append(lines, "")
-	lines = append(lines, styleMuted.Render("Następna runda za chwilę..."))
+	lines = append(lines, styleMuted.Render("Next round in a moment..."))
 	lines = append(lines, "")
-	lines = append(lines, styleKey.Render("[Q] Wyjdź"))
+	lines = append(lines, styleKey.Render("[Q] Quit"))
 	return m.centerView(strings.Join(lines, "\n"))
 }
 
@@ -795,12 +795,12 @@ func (m Model) viewResult() string {
 	}
 
 	var lines []string
-	lines = append(lines, "🎉 Sesja zakończona!")
+	lines = append(lines, "🎉 Session over!")
 	lines = append(lines, "")
-	lines = append(lines, fmt.Sprintf("Ty:      %s", styleSuccess.Render(fmt.Sprintf("%d/%d rund", myScore, TotalRounds))))
-	lines = append(lines, fmt.Sprintf("Partner: %s", styleMuted.Render(fmt.Sprintf("%d/%d rund", partnerScore, TotalRounds))))
+	lines = append(lines, fmt.Sprintf("You:     %s", styleSuccess.Render(fmt.Sprintf("%d/%d rounds", myScore, TotalRounds))))
+	lines = append(lines, fmt.Sprintf("Partner: %s", styleMuted.Render(fmt.Sprintf("%d/%d rounds", partnerScore, TotalRounds))))
 	lines = append(lines, "")
-	lines = append(lines, styleKeyHighlight.Render("[N]")+" Nowa sesja  "+styleKeyHighlight.Render("[Q]")+" Wyjdź")
+	lines = append(lines, styleKeyHighlight.Render("[N]")+" New session  "+styleKeyHighlight.Render("[Q]")+" Quit")
 	return m.centerView(strings.Join(lines, "\n"))
 }
 
