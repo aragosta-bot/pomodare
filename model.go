@@ -231,6 +231,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 		}
 		return m.handleKey(msg)
+
+	case tea.MouseMsg:
+		// Mouse support: handle clicks gracefully
+		if msg.Action == tea.MouseActionRelease {
+			return m, nil
+		}
+		return m, nil
 	}
 
 	return m, nil
@@ -289,9 +296,15 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case ScreenWaiting:
 		switch key {
-		case "q", "ctrl+c":
+		case "q":
 			m.cleanupSession()
 			return m, tea.Quit
+		case "b", "esc":
+			m.cleanupSession()
+			m.session = nil
+			m.isHost = false
+			m.screen = ScreenHome
+			return m, nil
 		}
 
 	case ScreenLobby:
@@ -664,7 +677,7 @@ func (m Model) viewWaiting() string {
 	lines = append(lines, "")
 	lines = append(lines, styleMuted.Render("Waiting for partner..."))
 	lines = append(lines, "")
-	lines = append(lines, styleKey.Render("[Q] Quit"))
+	lines = append(lines, styleKeyHighlight.Render("[B]")+" Back  "+styleKey.Render("[Q] Quit"))
 	return m.centerView(strings.Join(lines, "\n"))
 }
 
