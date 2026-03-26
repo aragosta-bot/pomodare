@@ -2,6 +2,6 @@
   "database": "dolt",
   "backend": "dolt",
   "dolt_mode": "server",
-  "dolt_database": "focusduel",
-  "project_id": "9a73a265-3c43-4099-a81e-bca900805dac"
+  "dolt_database": "pomodare",
+  "project_id": "8032770c-b90f-483a-a789-513c110d0469"
 }
