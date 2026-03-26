@@ -88,11 +88,13 @@ type Model struct {
 }
 
 func NewModel() Model {
-	return Model{
+	m := Model{
 		screen:   ScreenHome,
 		supabase: NewSupabaseClient(),
 		playerID: generatePlayerID(),
 	}
+	initAnalytics(m.playerID)
+	return m
 }
 
 func generatePlayerID() string {
@@ -179,6 +181,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.soloPhase = PhaseBreak
 					m.soloStart = time.Now()
 					m.soloElapsed = 0
+					trackEvent(m.playerID, "solo_round_completed", map[string]interface{}{"round": m.soloRound - 1})
 				} else {
 					// Break done → next work (round already incremented when work ended)
 					m.soloPhase = PhaseWork
@@ -207,6 +210,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.isHost = true
 		m.screen = ScreenWaiting
 		m.errMsg = ""
+		trackEvent(m.playerID, "session_created", nil)
 		return m, pollSessionCmd(m.supabase, m.session.ID)
 
 	case sessionJoinedMsg:
@@ -219,6 +223,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.isHost = false
 		m.screen = ScreenLobby
 		m.errMsg = ""
+		trackEvent(m.playerID, "session_joined", nil)
 		return m, nil
 
 	case roundStartedMsg:
@@ -286,6 +291,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.soloPaused = false
 			m.soloRound = 1
 			m.errMsg = ""
+			trackEvent(m.playerID, "solo_started", nil)
 			return m, nil
 		}
 
@@ -431,6 +437,7 @@ func (m Model) handleButtonClick(label string) (tea.Model, tea.Cmd) {
 		m.soloPaused = false
 		m.soloRound = 1
 		m.errMsg = ""
+		trackEvent(m.playerID, "solo_started", nil)
 		return m, nil
 	case "quit":
 		m.cleanupSession()
@@ -584,6 +591,12 @@ func (m Model) handleTimerExpired() (tea.Model, tea.Cmd) {
 	}
 
 	isLastRound := m.session.Round >= TotalRounds
+
+	won := iDeclared && !iGaveUp
+	trackEvent(m.playerID, "round_completed", map[string]interface{}{"won": won, "round": m.session.Round})
+	if isLastRound {
+		trackEvent(m.playerID, "session_finished", map[string]interface{}{"my_score": myScore, "partner_score": partnerScore})
+	}
 
 	if m.isHost {
 		updates := map[string]interface{}{
